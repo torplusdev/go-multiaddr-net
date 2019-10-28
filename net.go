@@ -172,6 +172,8 @@ func (d *Dialer) DialContext(ctx context.Context, remote ma.Multiaddr) (Conn, er
 		if err != nil {
 			return nil, err
 		}
+	case "onion", "onion3":
+		return nil, fmt.Errorf("not implemented!")
 	default:
 		return nil, fmt.Errorf("unrecognized network: %s", rnet)
 	}

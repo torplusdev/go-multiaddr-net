@@ -22,6 +22,8 @@ func init() {
 	defaultCodecs.RegisterFromNetAddr(parseIPNetAddr, "ip", "ip4", "ip6")
 	defaultCodecs.RegisterFromNetAddr(parseIPPlusNetAddr, "ip+net")
 	defaultCodecs.RegisterFromNetAddr(parseUnixNetAddr, "unix")
+	//defaultCodecs.RegisterFromNetAddr(parseOnionNetAddr, "onion3")
+
 
 	defaultCodecs.RegisterToNetAddr(parseBasicNetMaddr, "tcp", "udp", "ip6", "ip4", "unix")
 }

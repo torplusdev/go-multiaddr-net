@@ -1,10 +1,12 @@
 package manet
 
 import (
+	"encoding/base32"
 	"fmt"
 	"net"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
 	ma "github.com/multiformats/go-multiaddr"
@@ -22,6 +24,23 @@ func (cm *CodecMap) FromNetAddr(a net.Addr) (ma.Multiaddr, error) {
 	if a == nil {
 		return nil, fmt.Errorf("nil multiaddr")
 	}
+
+	//TODO:Refactor to use parsers
+	if a.Network() == "onion3" {
+
+		fields := strings.Split(a.String(), ":")
+		if len(fields) != 2 {
+			return nil, fmt.Errorf("invalid onion addr doesn't contain a port %v", a)
+		}
+
+		// Get Tor Onion Addr
+		onionm, err := ma.NewMultiaddr(fmt.Sprintf("/onion3/%s:%s", fields[0], fields[1]))
+		if err != nil {
+			return nil, errIncorrectNetAddr
+		}
+		return onionm, nil
+	}
+
 	p, err := cm.getAddrParser(a.Network())
 	if err != nil {
 		return nil, err
@@ -63,6 +82,7 @@ func parseBasicNetMaddr(maddr ma.Multiaddr) (net.Addr, error) {
 		return net.ResolveUDPAddr(network, host)
 	case "ip", "ip4", "ip6":
 		return net.ResolveIPAddr(network, host)
+
 	case "unix":
 		return net.ResolveUnixAddr(network, host)
 	}
@@ -111,6 +131,9 @@ func DialArgs(m ma.Multiaddr) (string, string, error) {
 
 	ma.ForEach(m, func(c ma.Component) bool {
 		switch network {
+		case "onion", "onion3":
+			return true
+
 		case "":
 			switch c.Protocol().Code {
 			case ma.P_IP6ZONE:
@@ -202,6 +225,51 @@ func DialArgs(m ma.Multiaddr) (string, string, error) {
 	default:
 		return "", "", fmt.Errorf("%s is not a 'thin waist' address", m)
 	}
+}
+
+func parseOnionNetAddr(a net.Addr) (ma.Multiaddr, error) {
+
+	m,err := ma.NewMultiaddr(a.String())
+
+	if len(m.Protocols()) != 1 {
+		return nil, fmt.Errorf("incorrect protocol")
+	}
+
+	// check for correct network type
+	if m.Protocols()[0].Name != "onion3" {
+		return nil, fmt.Errorf("incorrect prefix")
+	}
+
+	// split into onion address and port
+	addr, err := m.ValueForProtocol(ma.P_ONION3)
+	if err != nil {
+		return nil, fmt.Errorf("couldnt split into address and port")
+	}
+	split := strings.Split(addr, ":")
+	if len(split) != 2 {
+		return nil, fmt.Errorf("too many elements")
+	}
+
+	// onion3 address without the ".onion" substring
+	if len(split[0]) != 56 {
+		fmt.Println(split[0])
+		return nil, fmt.Errorf("bad address length")
+	}
+	_, err = base32.StdEncoding.DecodeString(strings.ToUpper(split[0]))
+	if err != nil {
+		return nil, fmt.Errorf("couldnt decode address")
+	}
+
+	// onion port number
+	i, err := strconv.Atoi(split[1])
+	if err != nil {
+		return nil, fmt.Errorf("couldnt decode port")
+	}
+	if i >= 65536 || i < 1 {
+		return nil, fmt.Errorf("invalid port number")
+	}
+
+	return m,err
 }
 
 func parseTCPNetAddr(a net.Addr) (ma.Multiaddr, error) {
