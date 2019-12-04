@@ -230,28 +230,45 @@ func DialArgs(m ma.Multiaddr) (string, string, error) {
 func parseOnionNetAddr(a net.Addr) (ma.Multiaddr, error) {
 
 	m,err := ma.NewMultiaddr(a.String())
+	var addressLength int = 16;
 
 	if len(m.Protocols()) != 1 {
 		return nil, fmt.Errorf("incorrect protocol")
 	}
 
-	// check for correct network type
-	if m.Protocols()[0].Name != "onion3" {
+	var addr string;
+
+	switch (m.Protocols()[0].Name) {
+	case "onion":
+		fallthrough;
+	case "onion3":
+		addressLength = 56;
+		addr, err = m.ValueForProtocol(ma.P_ONION3)
+		if err != nil {
+			return nil, fmt.Errorf("couldnt split into address and port")
+		}
+		break;
+	default:
 		return nil, fmt.Errorf("incorrect prefix")
+
 	}
+	// check for correct network type
+	//if m.Protocols()[0].Name != "onion3" {
+	//	return nil, fmt.Errorf("incorrect prefix")
+	//}
 
 	// split into onion address and port
-	addr, err := m.ValueForProtocol(ma.P_ONION3)
-	if err != nil {
-		return nil, fmt.Errorf("couldnt split into address and port")
-	}
+	//addr, err := m.ValueForProtocol(ma.P_ONION3)
+	//if err != nil {
+	//	return nil, fmt.Errorf("couldnt split into address and port")
+	//}
 	split := strings.Split(addr, ":")
 	if len(split) != 2 {
 		return nil, fmt.Errorf("too many elements")
 	}
 
 	// onion3 address without the ".onion" substring
-	if len(split[0]) != 56 {
+	if len(split[0]) != addressLength {
 		fmt.Println(split[0])
 		return nil, fmt.Errorf("bad address length")
 	}
