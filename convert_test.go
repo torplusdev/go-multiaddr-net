@@ -51,11 +51,20 @@ func testToNetAddr(t *testing.T, maddr, ntwk, addr string) {
 	// should convert properly
 	switch ntwk {
 	case "tcp":
-		_ = naddr.(*net.TCPAddr)
+		taddr := naddr.(*net.TCPAddr)
+		if ip, err := ToIP(m); err != nil || !taddr.IP.Equal(ip) {
+			t.Fatalf("ToIP() and ToNetAddr diverged: %s != %s", taddr, ip)
+		}
 	case "udp":
-		_ = naddr.(*net.UDPAddr)
+		uaddr := naddr.(*net.UDPAddr)
+		if ip, err := ToIP(m); err != nil || !uaddr.IP.Equal(ip) {
+			t.Fatalf("ToIP() and ToNetAddr diverged: %s != %s", uaddr, ip)
+		}
 	case "ip":
-		_ = naddr.(*net.IPAddr)
+		ipaddr := naddr.(*net.IPAddr)
+		if ip, err := ToIP(m); err != nil || !ipaddr.IP.Equal(ip) {
+			t.Fatalf("ToIP() and ToNetAddr diverged: %s != %s", ipaddr, ip)
+		}
 	}
 }
 
@@ -187,6 +196,7 @@ func TestDialArgs(t *testing.T) {
 	test_error("/ip6zone/foo/ip4/127.0.0.1")                        // IP4 doesn't take zone
 	test("/ip6zone/foo/ip6/::1/ip6zone/bar", "ip6", "::1%foo")      // IP over IP
 	test_error("/ip6zone/foo/ip6zone/bar/ip6/::1")                  // Only one zone per IP6
+	test("/dns/abc.com/tcp/1234", "tcp", "abc.com:1234")            // DNS4:port
 	test("/dns4/abc.com/tcp/1234", "tcp4", "abc.com:1234")          // DNS4:port
 	test("/dns4/abc.com", "ip4", "abc.com")                         // Just DNS4
 	test("/dns6/abc.com/udp/1234", "udp6", "abc.com:1234")          // DNS6:port

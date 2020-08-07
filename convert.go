@@ -13,6 +13,7 @@ import (
 )
 
 var errIncorrectNetAddr = fmt.Errorf("incorrect network addr conversion")
+var errNotIP = fmt.Errorf("multiaddr does not start with an IP address")
 
 // FromNetAddr converts a net.Addr type to a Multiaddr.
 func FromNetAddr(a net.Addr) (ma.Multiaddr, error) {
@@ -118,17 +119,77 @@ func FromIP(ip net.IP) (ma.Multiaddr, error) {
 	return FromIPAndZone(ip, "")
 }
 
+// ToIP converts a Multiaddr to a net.IP when possible
+func ToIP(addr ma.Multiaddr) (net.IP, error) {
+	var ip net.IP
+	ma.ForEach(addr, func(c ma.Component) bool {
+		switch c.Protocol().Code {
+		case ma.P_IP6ZONE:
+			// we can't return these anyways.
+			return true
+		case ma.P_IP6, ma.P_IP4:
+			ip = net.IP(c.RawValue())
+			return false
+		}
+		return false
+	})
+	if ip == nil {
+		return nil, errNotIP
+	}
+	return ip, nil
+}
+
 // DialArgs is a convenience function that returns network and address as
 // expected by net.Dial. See https://godoc.org/net#Dial for an overview of
 // possible return values (we do not support the unixpacket ones yet). Unix
 // addresses do not, at present, compose.
 func DialArgs(m ma.Multiaddr) (string, string, error) {
-	var (
-		zone, network, ip, port string
-		err                     error
-		hostname                bool
-	)
+	zone, network, ip, port, hostname, err := dialArgComponents(m)
+	if err != nil {
+		return "", "", err
+	}
 
+	// If we have a hostname (dns*), we don't want any fancy ipv6 formatting
+	// logic (zone, brackets, etc.).
+	if hostname {
+		switch network {
+		case "ip", "ip4", "ip6":
+			return network, ip, nil
+		case "tcp", "tcp4", "tcp6", "udp", "udp4", "udp6":
+			return network, ip + ":" + port, nil
+		}
+		// Hostname is only true when network is one of the above.
+		panic("unreachable")
+	}
+
+	switch network {
+	case "ip6":
+		if zone != "" {
+			ip += "%" + zone
+		}
+		fallthrough
+	case "ip4":
+		return network, ip, nil
+	case "tcp4", "udp4":
+		return network, ip + ":" + port, nil
+	case "tcp6", "udp6":
+		if zone != "" {
+			ip += "%" + zone
+		}
+		return network, "[" + ip + "]" + ":" + port, nil
+	case "unix":
+		if runtime.GOOS == "windows" {
+			// convert /c:/... to c:\...
+			ip = filepath.FromSlash(strings.TrimLeft(ip, "/"))
+		}
+		return network, ip, nil
+	default:
+		return "", "", fmt.Errorf("%s is not a 'thin waist' address", m)
+	}
+}
+
+// dialArgComponents extracts the raw pieces used in dialing a Multiaddr
+func dialArgComponents(m ma.Multiaddr) (zone, network, ip, port string, hostname bool, err error) {
 	ma.ForEach(m, func(c ma.Component) bool {
 		switch network {
 		case "onion", "onion3":
@@ -155,6 +216,11 @@ func DialArgs(m ma.Multiaddr) (string, string, error) {
 				network = "ip4"
 				ip = c.Value()
 				return true
+			case ma.P_DNS:
+				network = "ip"
+				hostname = true
+				ip = c.Value()
+				return true
 			case ma.P_DNS4:
 				network = "ip4"
 				hostname = true
@@ -170,6 +236,16 @@ func DialArgs(m ma.Multiaddr) (string, string, error) {
 				ip = c.Value()
 				return false
 			}
+		case "ip":
+			switch c.Protocol().Code {
+			case ma.P_UDP:
+				network = "udp"
+			case ma.P_TCP:
+				network = "tcp"
+			default:
+				return false
+			}
+			port = c.Value()
 		case "ip4":
 			switch c.Protocol().Code {
 			case ma.P_UDP:
@@ -194,37 +270,7 @@ func DialArgs(m ma.Multiaddr) (string, string, error) {
 		// Done.
 		return false
 	})
-	if err != nil {
-		return "", "", err
-	}
-
-	switch network {
-	case "ip6":
-		if zone != "" {
-			ip += "%" + zone
-		}
-		fallthrough
-	case "ip4":
-		return network, ip, nil
-	case "tcp4", "udp4":
-		return network, ip + ":" + port, nil
-	case "tcp6", "udp6":
-		if zone != "" {
-			ip += "%" + zone
-		}
-		if hostname {
-			return network, ip + ":" + port, nil
-		}
-		return network, "[" + ip + "]" + ":" + port, nil
-	case "unix":
-		if runtime.GOOS == "windows" {
-			// convert /c:/... to c:\...
-			ip = filepath.FromSlash(strings.TrimLeft(ip, "/"))
-		}
-		return network, ip, nil
-	default:
-		return "", "", fmt.Errorf("%s is not a 'thin waist' address", m)
-	}
+	return
 }
 
 func parseOnionNetAddr(a net.Addr) (ma.Multiaddr, error) {
